@@ -720,7 +720,12 @@ def labels_to_class_weights(labels, nc=80):
         return torch.Tensor()
 
     labels = np.concatenate(labels, 0)  # labels.shape = (866643, 5) for COCO
-    classes = labels[:, 0].astype(int)  # labels = [class xywh]
+    # classes = labels[:, 0].astype(int)  # labels = [class xywh]
+    classes = labels[:, 0]  # labels = [class xywh]
+    classes_reshape = []
+    for i in classes:
+        classes_reshape += i
+    classes = np.array(classes_reshape)
     weights = np.bincount(classes, minlength=nc)  # occurrences per class
 
     # Prepend gridpoint count (for uCE training)
@@ -956,8 +961,17 @@ def non_max_suppression(
 
         # Detections matrix nx6 (xyxy, conf, cls)
         if multi_label:
-            i, j = (x[:, 5:mi] > conf_thres).nonzero(as_tuple=False).T
-            x = torch.cat((box[i], x[i, 5 + j, None], j[:, None].float(), mask[i]), 1)
+            # i, j = (x[:, 5:mi] > conf_thres).nonzero(as_tuple=False).T
+            # x = torch.cat((box[i], x[i, 5 + j, None], j[:, None].float(), mask[i]), 1)
+
+            # 将置信度小于conf_thres的类别置为0
+            x[:, 5:mi] = (x[:, 5:mi] > conf_thres).float() * x[:, 5:mi]
+            # 将置信度小于conf_thres的类别置为0后，如果某个box的所有类别都被置为0，则将该box删除
+            x = x[torch.sum(x[:, 5:mi], dim=1) > 0]
+            # 重新设置置信度(第四列)
+            # x[:, 4] = torch.sum(x[:, 5:mi], dim=1) # 将所有类别的置信度相加作为该box的置信度 # todo: 相加合理吗？
+            # 改成平均作为该box的置信度
+            x[:, 4] = torch.sum(x[:, 5:mi], dim=1) / torch.sum(x[:, 5:mi] > 0, dim=1) # todo：平均合理吗？好像还行，但是有更好的方法吗？
         else:  # best class only
             conf, j = x[:, 5:mi].max(1, keepdim=True)
             x = torch.cat((box, conf, j.float(), mask), 1)[conf.view(-1) > conf_thres]
@@ -977,7 +991,25 @@ def non_max_suppression(
         x = x[x[:, 4].argsort(descending=True)[:max_nms]]  # sort by confidence and remove excess boxes
 
         # Batched NMS
-        c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
+        # c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
+        # 修改一下偏移量，使得不同类别的box不会重叠
+        # 偏移量为的二进制数的第i位为1，表示第i类的box
+        # 例如：偏移量为3，表示第0类和第1类的box，共有2^26种偏移量
+        
+        # 将类别（x的5到31列）转化为二进制数，然后转化为十进制数
+        bi = torch.zeros((n, 1), device=x.device)
+        # one_hot = (x[:, 5:mi] > conf_thres).float()
+        i, j = (x[:, 5:mi] > 0).nonzero(as_tuple=False).T
+        
+        
+        # 按i分块
+        for k in range(len(i)):
+            bi[i[k]] += 2 ** j[k]
+        # 为上面的两行代码加速
+        # bi[i] += 2 ** j
+
+        # todo: 考虑一下非multi_label的情况，如val可能会出现问题？
+        c = bi * (0 if agnostic else max_wh)  # classes
         boxes, scores = x[:, :4] + c, x[:, 4]  # boxes (offset by class), scores
         i = torchvision.ops.nms(boxes, scores, iou_thres)  # NMS
         i = i[:max_det]  # limit detections

@@ -1,0 +1,26 @@
+python version: 3.9.16 (main, Mar  8 2023, 14:00:05)  [GCC 11.2.0]
+pudb version: 2022.1.3
+urwid version: 2.1.2
+Traceback (most recent call last):
+  File "/home/hcr/.conda/envs/uni/lib/python3.9/site-packages/pudb/debugger.py", line 2704, in event_loop
+    toplevel.keypress(self.size, k)
+  File "/home/hcr/.conda/envs/uni/lib/python3.9/site-packages/pudb/ui_tools.py", line 119, in keypress
+    result = self._w.keypress(size, key)
+  File "/home/hcr/.conda/envs/uni/lib/python3.9/site-packages/urwid/container.py", line 1135, in keypress
+    return self.body.keypress( (maxcol, remaining), key )
+  File "/home/hcr/.conda/envs/uni/lib/python3.9/site-packages/urwid/container.py", line 2316, in keypress
+    key = w.keypress((mc,) + size[1:], key)
+  File "/home/hcr/.conda/envs/uni/lib/python3.9/site-packages/urwid/container.py", line 1626, in keypress
+    key = self.focus.keypress(tsize, key)
+  File "/home/hcr/.conda/envs/uni/lib/python3.9/site-packages/pudb/ui_tools.py", line 119, in keypress
+    result = self._w.keypress(size, key)
+  File "/home/hcr/.conda/envs/uni/lib/python3.9/site-packages/urwid/container.py", line 1626, in keypress
+    key = self.focus.keypress(tsize, key)
+  File "/home/hcr/.conda/envs/uni/lib/python3.9/site-packages/urwid/listbox.py", line 982, in keypress
+    return actual_key(self._keypress_down((maxcol, maxrow)))
+  File "/home/hcr/.conda/envs/uni/lib/python3.9/site-packages/urwid/listbox.py", line 1131, in _keypress_down
+    self.shift_focus((maxcol,maxrow),
+  File "/home/hcr/.conda/envs/uni/lib/python3.9/site-packages/urwid/listbox.py", line 765, in shift_focus
+    raise ListBoxError("Invalid offset_inset: %r, only %r rows in target!" %(offset_inset, tgt_rows))
+urwid.listbox.ListBoxError: Invalid offset_inset: -4, only 4 rows in target!
+

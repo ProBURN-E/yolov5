@@ -118,11 +118,11 @@ class ComputeLoss:
         self.anchors = m.anchors
         self.device = device
 
-    def __call__(self, p, targets):  # predictions, targets
+    def __call__(self, p, targets, classes):  # predictions, targets
         lcls = torch.zeros(1, device=self.device)  # class loss
         lbox = torch.zeros(1, device=self.device)  # box loss
         lobj = torch.zeros(1, device=self.device)  # object loss
-        tcls, tbox, indices, anchors = self.build_targets(p, targets)  # targets
+        tcls, tbox, indices, anchors, tclasses = self.build_targets(p, targets, classes)  # targets
 
         # Losses
         for i, pi in enumerate(p):  # layer index, layer predictions
@@ -154,7 +154,8 @@ class ComputeLoss:
                 if self.nc > 1:  # cls loss (only if multiple classes)
                     t = torch.full_like(pcls, self.cn, device=self.device)  # targets
                     t[range(n), tcls[i]] = self.cp
-                    lcls += self.BCEcls(pcls, t)  # BCE
+                    # lcls += self.BCEcls(pcls, t)  # BCE
+                    lcls += self.BCEcls(pcls, tclasses[i])
 
                 # Append targets to text file
                 # with open('targets.txt', 'a') as file:
@@ -174,13 +175,15 @@ class ComputeLoss:
 
         return (lbox + lobj + lcls) * bs, torch.cat((lbox, lobj, lcls)).detach()
 
-    def build_targets(self, p, targets):
+    def build_targets(self, p, targets, classes):
+        # breakpoint()
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
         na, nt = self.na, targets.shape[0]  # number of anchors, targets
-        tcls, tbox, indices, anch = [], [], [], []
+        tcls, tbox, indices, anch, tclasses = [], [], [], [], []
         gain = torch.ones(7, device=self.device)  # normalized to gridspace gain
         ai = torch.arange(na, device=self.device).float().view(na, 1).repeat(1, nt)  # same as .repeat_interleave(nt)
         targets = torch.cat((targets.repeat(na, 1, 1), ai[..., None]), 2)  # append anchor indices
+        classes = torch.cat((classes.repeat(na, 1, 1), ai[..., None]), 2)
 
         g = 0.5  # bias
         off = torch.tensor(
@@ -206,6 +209,7 @@ class ComputeLoss:
                 j = torch.max(r, 1 / r).max(2)[0] < self.hyp['anchor_t']  # compare
                 # j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n)=wh_iou(anchors(3,2), gwh(n,2))
                 t = t[j]  # filter
+                cc = classes[j]
 
                 # Offsets
                 gxy = t[:, 2:4]  # grid xy
@@ -214,21 +218,28 @@ class ComputeLoss:
                 l, m = ((gxi % 1 < g) & (gxi > 1)).T
                 j = torch.stack((torch.ones_like(j), j, k, l, m))
                 t = t.repeat((5, 1, 1))[j]
+                cc = cc.repeat((5, 1, 1))[j]
+                cc = cc[:, :26]
                 offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
             else:
                 t = targets[0]
+                cc = classes[0]
                 offsets = 0
-
+            
             # Define
             bc, gxy, gwh, a = t.chunk(4, 1)  # (image, class), grid xy, grid wh, anchors
             a, (b, c) = a.long().view(-1), bc.long().T  # anchors, image, class
+            # assert all([bool(cc[idx][ci]==1) for idx,ci in enumerate(c)]), "class mismatch"
+            
             gij = (gxy - offsets).long()
             gi, gj = gij.T  # grid indices
+
 
             # Append
             indices.append((b, a, gj.clamp_(0, shape[2] - 1), gi.clamp_(0, shape[3] - 1)))  # image, anchor, grid
             tbox.append(torch.cat((gxy - gij, gwh), 1))  # box
             anch.append(anchors[a])  # anchors
             tcls.append(c)  # class
+            tclasses.append(cc)
 
-        return tcls, tbox, indices, anch
+        return tcls, tbox, indices, anch, tclasses

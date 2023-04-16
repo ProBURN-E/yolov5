@@ -713,16 +713,26 @@ class LoadImagesAndLabels(Dataset):
             # Cutouts
             # labels = cutout(img, labels, p=0.5)
             # nl = len(labels)  # update after cutout
-
         labels_out = torch.zeros((nl, 6))
+        classes_out = torch.zeros((nl, 26)) # 26: number of classes; nc 
         if nl:
+            classes = labels[:, 0].copy()  # target class labels
+            labels[:, 0] = self.class_map(classes)  # remap
+            labels = labels.astype(np.float32)
+            for i in range(nl):
+                classes_out[i, classes[i]] = 1
+            # classes_out = torch.from_numpy(classes_out)
             labels_out[:, 1:] = torch.from_numpy(labels)
 
         # Convert
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img)
 
-        return torch.from_numpy(img), labels_out, self.im_files[index], shapes
+        return torch.from_numpy(img), labels_out, self.im_files[index], shapes, classes_out
+
+    def class_map(self, c):
+        return np.array([i[0] for i in c])
+
 
     def load_image(self, i):
         # Loads 1 image from dataset index 'i', returns (im, original hw, resized hw)
@@ -884,10 +894,10 @@ class LoadImagesAndLabels(Dataset):
 
     @staticmethod
     def collate_fn(batch):
-        im, label, path, shapes = zip(*batch)  # transposed
+        im, label, path, shapes, classes = zip(*batch)  # transposed
         for i, lb in enumerate(label):
             lb[:, 0] = i  # add target image index for build_targets()
-        return torch.stack(im, 0), torch.cat(label, 0), path, shapes
+        return torch.stack(im, 0), torch.cat(label, 0), path, shapes, torch.cat(classes, 0)
 
     @staticmethod
     def collate_fn4(batch):
@@ -1010,17 +1020,19 @@ def verify_image_label(args):
             nf = 1  # label found
             with open(lb_file) as f:
                 lb = [x.split() for x in f.read().strip().splitlines() if len(x)]
+                for i, line in enumerate(lb):
+                    lb[i] = [eval(x) for x in line]
                 if any(len(x) > 6 for x in lb):  # is segment
-                    classes = np.array([x[0] for x in lb], dtype=np.float32)
+                    classes = np.array([x[0] for x in lb],dtype=np.float32)
                     segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in lb]  # (cls, xy1...)
                     lb = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
-                lb = np.array(lb, dtype=np.float32)
+                lb = np.array(lb,dtype=object)
             nl = len(lb)
             if nl:
                 assert lb.shape[1] == 5, f'labels require 5 columns, {lb.shape[1]} columns detected'
-                assert (lb >= 0).all(), f'negative label values {lb[lb < 0]}'
+                assert (lb[:, 1:] >= 0).all(), f'negative label values {lb[lb < 0]}'
                 assert (lb[:, 1:] <= 1).all(), f'non-normalized or out of bounds coordinates {lb[:, 1:][lb[:, 1:] > 1]}'
-                _, i = np.unique(lb, axis=0, return_index=True)
+                _, i = np.unique(lb[:, 1:].astype(np.float32), axis=0, return_index=True) # todo: not perfect, little chance of duplicates
                 if len(i) < nl:  # duplicate row check
                     lb = lb[i]  # remove duplicates
                     if segments:
